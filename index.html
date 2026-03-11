@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>CAD尺寸信息识别</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; background-color: #f5f7fa; }
+        h1 { text-align: center; color: #2c3e50; }
+        .container { display: flex; gap: 20px; margin-top: 20px; height: 80vh; }
+
+        /* 左侧面板：包含图片和 SVG */
+        .left-panel { flex: 2; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; overflow: hidden; }
+
+        /* 图片容器：关键！用于定位 SVG */
+        .image-wrapper { position: relative; width: 100%; height: 100%; overflow: auto; border: 1px solid #eee; text-align: center;}
+
+        /* 图片本身 */
+        #resultImage { display: block; max-width: 100%; }
+
+        /* SVG 覆盖层：绝对定位，覆盖在图片上 */
+        #interactionLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        /* SVG 里的多边形：允许点击 */
+        polygon { fill: transparent; stroke: transparent; cursor: pointer; pointer-events: all; transition: 0.2s; }
+        /* 鼠标悬停在框上时 */
+        polygon:hover { stroke: #3498db; stroke-width: 3; fill: rgba(52, 152, 219, 0.2); }
+        /* 选中状态 */
+        polygon.active { stroke: #e74c3c; stroke-width: 4; fill: rgba(231, 76, 60, 0.3); animation: pulse 1s infinite; }
+
+        @keyframes pulse { 0% { stroke-opacity: 1; } 50% { stroke-opacity: 0.5; } 100% { stroke-opacity: 1; } }
+
+        /* 右侧面板：表格 */
+        .right-panel { flex: 1; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        .table-wrapper { flex: 1; overflow-y: auto; }
+
+        .upload-area { border: 2px dashed #3498db; padding: 15px; text-align: center; border-radius: 8px; cursor: pointer; margin-bottom: 10px; }
+        .upload-area:hover { background-color: #ecf6fd; }
+        #fileInput { display: none; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: center; font-size: 14px; }
+        th { background-color: #3498db; color: white; position: sticky; top: 0; }
+
+        /* 表格行交互 */
+        tr { cursor: pointer; transition: 0.2s; }
+        tr:hover { background-color: #f1f1f1; }
+        /* 选中行样式 */
+        tr.active-row { background-color: #fff3cd !important; border-left: 5px solid #e74c3c; }
+
+        .tag { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+        .tag-d { background-color: #e8f6f3; color: #1abc9c; border: 1px solid #1abc9c; }
+        .tag-l { background-color: #eaf2f8; color: #3498db; border: 1px solid #3498db; }
+        .tag-a { background-color: #fef5e7; color: #f39c12; border: 1px solid #f39c12; }
+        .tag-err { background-color: #fdedec; color: #e74c3c; border: 1px solid #e74c3c; }
+
+        .tol-box { display: flex; flex-direction: column; font-size: 11px; line-height: 1.1; }
+        .tol-up { color: #e74c3c; }
+        .tol-low { color: #2980b9; }
+
+        #loading { display: none; text-align: center; color: #7f8c8d; padding: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>CAD 尺寸信息识别</h1>
+
+    <div class="container">
+        <!-- 左侧：图片 + SVG -->
+        <div class="left-panel">
+            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                <span>📂 点击上传图纸</span>
+                <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
+            </div>
+            <div id="loading"> 正在 AI 识别中...</div>
+
+            <div class="image-wrapper" id="imgWrapper">
+                <!-- 图片 -->
+                <div id="canvasContainer" style="position: relative; display: inline-block; line-height: 0;">
+                    <img id="resultImage" style="display: block; max-width: 100%; height: auto;">
+                    <svg id="interactionLayer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
+                <!-- SVG 覆盖层 -->
+
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：表格 -->
+        <div class="right-panel">
+            <h3>识别结果</h3>
+            <div class="table-wrapper">
+                <table id="dataTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;">ID</th>
+                            <th style="width: 60px;">类型</th>
+                            <th>数值</th>
+                            <th>公差</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultBody">
+                        <tr><td colspan="4">请上传图片</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentData = [];
+
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('resultImage').style.display = 'none';
+            document.getElementById('interactionLayer').innerHTML = ''; // 清空旧的框
+            document.getElementById('resultBody').innerHTML = '';
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/analyze', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    // 1. 设置图片
+                    const img = document.getElementById('resultImage');
+                    img.src = data.processed_image;
+                    img.style.display = 'block';
+
+                    // 2. 解析数据
+                    currentData = JSON.parse(data.ai_result);
+
+                    // 3. 渲染表格
+                    renderTable(currentData);
+
+                    // 4. 等待图片加载完成后，绘制 SVG 交互层
+                    // 必须等图片宽高确定了，才能设置 SVG 的 viewBox
+                    img.onload = () => {
+                        renderInteractionLayer(currentData, img.naturalWidth, img.naturalHeight);
+                    };
+
+                } else {
+                    alert("识别失败: " + data.error_msg);
+                }
+            } catch (error) {
+                alert("网络错误: " + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // 渲染 SVG 交互层
+        function renderInteractionLayer(items, imgW, imgH) {
+            const svg = document.getElementById('interactionLayer');
+            // 设置 SVG 坐标系与原图一致，这样就能直接使用 points 坐标，不用计算缩放
+            svg.setAttribute('viewBox', `0 0 ${imgW} ${imgH}`);
+            svg.innerHTML = '';
+
+            items.forEach(item => {
+                if (!item.points) return;
+
+                // 将坐标数组转换为 SVG polygon 的 points 字符串 "x1,y1 x2,y2 ..."
+                const pointsStr = item.points.map(p => p.join(',')).join(' ');
+
+                const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                poly.setAttribute("points", pointsStr);
+                poly.setAttribute("data-id", item.id);
+
+                // 点击事件：高亮表格行
+                poly.onclick = (e) => {
+                    e.stopPropagation(); // 防止冒泡
+                    highlightItem(item.id);
+                };
+
+                svg.appendChild(poly);
+            });
+        }
+
+        // 渲染表格
+        function renderTable(items) {
+            const tbody = document.getElementById('resultBody');
+            tbody.innerHTML = '';
+
+            items.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.id = `row-${item.id}`; // 给行加 ID，方便查找
+                tr.onclick = () => highlightItem(item.id); // 点击行也能高亮图上的框
+
+                let tagClass = 'tag-l';
+                if (item.type.includes('直径')) tagClass = 'tag-d';
+                if (item.type.includes('角度')) tagClass = 'tag-a';
+                if (item.type.includes('未识别') || item.type.includes('失败')) tagClass = 'tag-err';
+
+                let tolHtml = '-';
+                if (item.upper_tol || item.lower_tol) {
+                    tolHtml = `<div class="tol-box"><span class="tol-up">${item.upper_tol}</span><span class="tol-low">${item.lower_tol}</span></div>`;
+                }
+
+                tr.innerHTML = `
+                    <td><b>${item.id}</b></td>
+                    <td><span class="tag ${tagClass}">${item.type}</span></td>
+                    <td style="font-weight:bold">${item.value}</td>
+                    <td>${tolHtml}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 核心交互逻辑：高亮指定 ID 的行和框
+        function highlightItem(id) {
+            // 1. 清除所有高亮
+            document.querySelectorAll('tr').forEach(el => el.classList.remove('active-row'));
+            document.querySelectorAll('polygon').forEach(el => el.classList.remove('active'));
+
+            // 2. 高亮表格行
+            const row = document.getElementById(`row-${id}`);
+            if (row) {
+                row.classList.add('active-row');
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' }); // 自动滚动
+            }
+
+            // 3. 高亮图片上的框
+            const poly = document.querySelector(`polygon[data-id="${id}"]`);
+            if (poly) {
+                poly.classList.add('active');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+.venv/
+venv/
+__pycache__/
+.env
+.idea/
+.vscode/
+*.pyc
+debug_collage.jpg
+# 模型文件太大建议不上传，别人运行可以自己准备
+best.pt
