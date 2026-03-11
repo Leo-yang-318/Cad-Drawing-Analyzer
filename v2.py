@@ -17,7 +17,8 @@ from openai import OpenAI
 from ultralytics import YOLO
 
 # ================= 配置区域 =================
-DASHSCOPE_API_KEY = "sk-1a07df64218d45af9029e27a70894d25"
+load_dotenv()  # 加载 .env 文件中的变量
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 MODEL_NAME = "qwen-vl-max"
 
