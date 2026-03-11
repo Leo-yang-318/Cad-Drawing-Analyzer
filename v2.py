@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+# Version: V2.0 (Latest)
+# Description: 优化版后端，采用最小外接矩形（OBB）及像素级掩膜收缩算法。
+# Pros: 精准贴合倾斜标注。
+
 import os
 import cv2
 import numpy as np

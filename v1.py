@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+# Version: V1.0 (Legacy)
+# Description: 基础版后端，采用正矩形（轴对齐）绘图逻辑。
+# Pros: 逻辑简单，计算开销极小。
+# Cons: 无法贴合倾斜文字，易受背景线条干扰。
+
 import os
 import cv2
 import numpy as np
